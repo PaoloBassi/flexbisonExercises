@@ -1,0 +1,5 @@
+Inserisco delle frasi di prova
+per vedere se funziona
+il lexer che ho creato per simulare wc
+
+Anche con il salto di una riga
