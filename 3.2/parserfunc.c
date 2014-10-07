@@ -100,7 +100,7 @@ struct ast *newfunc(int functype, struct ast *l){
 
 struct ast *newcall(struct symbol *s, struct ast *l){
     
-    struct unfncall *a = malloc(sizeof(struct unfncall));
+    struct ufncall *a = malloc(sizeof(struct ufncall));
 
     if(!a){
         yyerror("Out of space");
@@ -222,7 +222,7 @@ void symlistfree(struct symlist *sl){
 static double callbuiltin(struct fncall *);
 static double calluser(struct ufncall *);
 
-double eval(struct ast *){
+double eval(struct ast *a){
 
     double v;
 
@@ -240,14 +240,14 @@ double eval(struct ast *){
         case 'N': v = ((struct symref *)a)->s->value; break;
 
         // name assignment
-        case '=': v = ((struct symasgn *)a)->s->value = eval(((struct symasgn *a)->v); break
+        case '=': v = ((struct symasgn *)a)->s->value = eval(((struct symasgn *)a)->v); break;
 
         // expression
         case '+': v = eval(a->l) + eval(a->r); break; 
         case '-': v = eval(a->l) - eval(a->r); break; 
         case '*': v = eval(a->l) * eval(a->r); break; 
         case '/': v = eval(a->l) / eval(a->r); break; 
-        case '|': v = fabs(eval(a-l));         break; 
+        case '|': v = fabs(eval(a->l));        break; 
         case 'M': v = -eval(a->r);             break;
 
         // comparisons
@@ -296,4 +296,126 @@ double eval(struct ast *){
         default: printf("internal error: bad node %c\n", a->nodetype);
     }
     return v;
+}
 
+static double callbuiltin(struct fncall *f){
+    
+    enum bifs functype = f->functype;
+    double v = eval(f->l);
+
+    switch(functype){
+        case B_sqrt:
+            return sqrt(v);
+        case B_exp:
+            return exp(v);
+        case B_log:
+            return log(v);
+        case B_print:
+            printf("= %4.4g\n", v);
+            return v;
+        default:
+                yyerror("Unknown built-in function %d", functype);
+            return 0.0;
+    }
+}
+
+// define a function
+void dodef(struct symbol *name, struct symlist *syms, struct ast *func){
+    
+    if(name->syms) symlistfree(name->syms);
+    if(name->func) treefree(name->func);
+    name->syms = syms;
+    name->func = func;
+}
+
+static double calluser(struct ufncall *f){
+    
+    struct symbol *fn = f->s;   // function name
+    struct symlist *sl;         // dummy arguments
+    struct ast *args = f->l;    // actual arguments
+    double *oldval, *newval;    // saved arg values
+    double v;
+    int nargs;
+    int i;
+
+    if(!fn->func){
+        yyerror("call to undefined function %s\n", fn->name);
+        return 0;
+    }
+
+    // count the arguments
+    sl = fn->syms;
+    for(nargs = 0; sl; sl = sl->next){
+        nargs++;
+    }
+
+    // prepare to save them
+    oldval = (double *)malloc(nargs * sizeof(double));
+    newval = (double *)malloc(nargs * sizeof(double));
+    if(!oldval || !newval){
+        yyerror("Out of space in %s\n", fn->name);
+        return 0.0;
+    }
+
+    // evaluates the arguments
+    for(i = 0; i < nargs; i++){
+        if(!args){
+            yyerror("too few args to call %s\n", fn->name);
+            free(oldval);
+            free(newval);
+            return 0.0;
+        }
+    
+
+        if(args->nodetype == 'L'){  // if this is a list node
+            newval[i] = eval(args->l);
+            args = args->r;
+        } else{     // if it's the end of the list
+            newval[i] = eval(args);
+            args = NULL;
+        }
+    }
+
+    // save old values of dummies, assign new ones
+    sl = fn->syms;
+    for(i = 0; i < nargs; i++){
+        struct symbol *s = sl->sym;
+
+        oldval[i] = s->value;
+        s->value = newval[i];
+        sl = sl->next;
+    }
+
+    free(newval);
+
+    // evaluate new function
+    v = eval(fn->func);
+
+    // put the real values of the dummies back
+    sl = fn->syms;
+    for(i = 0; i < nargs; i++){
+        struct symbol *s = sl->sym;
+
+        s->value = oldval[i];
+        sl = sl->next;
+    }
+
+    free(oldval);
+    return v;
+}
+
+void yyerror(char *s, ...){
+    
+    va_list ap;
+    va_start(ap,s);
+
+    fprintf(stderr, "%d: error: ", yylineno);
+    vfprintf(stderr, s, ap);
+    fprintf(stderr, "\n");
+}
+
+int main(int argc, char **argv){
+    
+    printf("> ");
+    return yyparse();
+}
